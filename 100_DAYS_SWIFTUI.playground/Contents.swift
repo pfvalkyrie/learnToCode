@@ -65,7 +65,7 @@ print(message)
 
 let tempCel = 20
 
-// error
+// error with pasted t
 print("20 degrees celsius is \(tempCel * 9 / 5 + 32) fahrenheit.")
 
 // typed t instead of pasted.
