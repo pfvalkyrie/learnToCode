@@ -63,10 +63,6 @@ let message = "Hello, my name is \(name2) and I am \(age) years old."
 print(message)
 
 
-let tempCel = 20
+let tempCel = 20.0
 
-// error with pasted t
-print("20 degrees celsius is \(tempCel * 9 / 5 + 32) fahrenheit.")
-
-// typed t instead of pasted.
-print("20 degrees celsius is \(tempCel * 9 / 5 + 32) fahrenheit.")
+print("\(tempCel) degrees celsius is \(tempCel * 9 / 5 + 32) fahrenheit.")
