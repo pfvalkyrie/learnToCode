@@ -66,3 +66,26 @@ print(message)
 let tempCel = 20.0
 
 print("\(tempCel) degrees celsius is \(tempCel * 9 / 5 + 32) fahrenheit.")
+
+
+var albums = [String]()
+
+albums.append("Red")
+
+print(albums)
+
+albums.append("Speak Now")
+
+print(albums)
+
+print(albums.count)
+
+print(albums.contains("Speak Now"))
+
+print(albums)
+
+albums.remove(at: 1)
+
+print(albums)
+
+print(albums.contains("Speak Now"))
