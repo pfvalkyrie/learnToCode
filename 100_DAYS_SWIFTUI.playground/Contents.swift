@@ -1,4 +1,5 @@
 import Cocoa
+import Foundation
 
 var greeting = "Hello, playground"
 
@@ -111,4 +112,25 @@ crew.remove(at: 3)
 print(crew)
 print(crew.count)
 
+
+print(crew.sorted())
+
+crew.reverse()
+
+// dictionaries
+
+let daysOfWeek = [
+    "weekend": "Saturday",
+    "weekday": "Wednesday",
+
+    
+
+]
+
+print(daysOfWeek)
+
+print(daysOfWeek["weekday", default: "Unknown"])
+
+print(daysOfWeek.count)
+print(daysOfWeek.keys)
 
