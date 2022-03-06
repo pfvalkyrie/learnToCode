@@ -89,3 +89,26 @@ albums.remove(at: 1)
 print(albums)
 
 print(albums.contains("Speak Now"))
+
+var crew = ["Jack", "Sally", "John", "Jen"]
+
+print(crew.count)
+
+print(crew[1])
+
+print(crew.contains("Jack"))
+
+print(crew.contains("Mac"))
+
+crew.append("Mac")
+print(crew.contains("Mac"))
+
+
+print(crew)
+print(crew.count)
+crew.remove(at: 3)
+
+print(crew)
+print(crew.count)
+
+
