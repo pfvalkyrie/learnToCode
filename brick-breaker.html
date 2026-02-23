@@ -138,25 +138,27 @@
     const PADDLE_H  = 12;
     const PADDLE_Y  = H - 40;
     const PADDLE_SPD = 6;
-    const BALL_R        = 7;
-    const BIG_BALL_R    = 14;
-    const BIG_BALL_FRAMES = 900;   // ~15 s at 60 fps
-    const BASE_SPD      = 6;
-    const SPD_MAX       = 15;
-    const SPD_BOOST     = 1.06;
+    const BALL_R          = 7;
+    const BIG_BALL_R      = 14;
+    const TINY_BALL_R     = 3;
+    const BIG_BALL_FRAMES = 180;   // 3 s at 60 fps
+    const TINY_BALL_FRAMES = 600;  // 10 s at 60 fps
+    const BASE_SPD        = 6;
+    const SPD_MAX         = 15;
+    const SPD_BOOST       = 1.06;
 
     // ── Power-up config ────────────────────────────────────────────
-    const PU_TYPES  = ['sticky', 'ghost', 'bigball'];
-    const PU_HUE    = { sticky: 48, ghost: 185, bigball: 285 };
-    const PU_LABEL  = { sticky: 'S', ghost: 'G', bigball: 'B' };
+    const PU_TYPES  = ['sticky', 'ghost', 'bigball', 'tiny'];
+    const PU_HUE    = { sticky: 48, ghost: 185, bigball: 285, tiny: 22 };
+    const PU_LABEL  = { sticky: 'S', ghost: 'G', bigball: 'B', tiny: 'T' };
     const PU_W = 18, PU_H = 22, PU_SPD = 1.6;
     const PU_DROP_CHANCE = 0.3;
 
     const BRICK_COLS = 10;
     const BRICK_ROWS = 6;
-    const BRICK_W   = 42;
+    const BRICK_W   = 38;
     const BRICK_H   = 18;
-    const BRICK_PAD =  4;
+    const BRICK_PAD =  8;
     const BRICK_OX  = (W - (BRICK_COLS * (BRICK_W + BRICK_PAD) - BRICK_PAD)) / 2;
     const BRICK_OY  = 60;
 
@@ -177,7 +179,8 @@
     let pointerX  = null;   // mouse or touch X in canvas logical coords
     let ball, bricks, particles;
     let fallingPowerups = [];
-    let fx = { sticky: false, ghost: false, bigball: 0 };
+    let fx = { sticky: false, ghost: false, bigball: 0, tiny: 0 };
+    let shakeFrames = 0, shakeAmt = 0;
 
     // ── Ball / brick helpers ───────────────────────────────────────
     function freshBall() {
@@ -209,7 +212,8 @@
       bricks        = buildBricks(1);
       particles     = [];
       fallingPowerups = [];
-      fx            = { sticky: false, ghost: false, bigball: 0 };
+      fx            = { sticky: false, ghost: false, bigball: 0, tiny: 0 };
+      shakeFrames   = 0;
       ball          = freshBall();
       ball.x        = paddle.x + PADDLE_W / 2;
       state         = 'playing';
@@ -244,14 +248,20 @@
     }
 
     // ── Particle system ────────────────────────────────────────────
-    // Bounce ring: expands outward and fades
+    // Bounce: two expanding rings + spark trails
     function spawnBounce(x, y, hue) {
-      particles.push({
-        type: 'ring', x, y,
-        r: BALL_R + 1,
-        hue: hue ?? 220,
-        alpha: 0.9,
-      });
+      const h = hue ?? 220;
+      particles.push({ type: 'ring', x, y, r: ball.r + 1, hue: h, alpha: 1.0, rspd: 3.5 });
+      particles.push({ type: 'ring', x, y, r: ball.r * 0.4, hue: h, alpha: 0.6, rspd: 1.5 });
+      for (let i = 0; i < 5; i++) {
+        const a   = Math.random() * Math.PI * 2;
+        const spd = 2.5 + Math.random() * 3.5;
+        particles.push({
+          type: 'spark', x, y,
+          vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+          hue: h, alpha: 1, decay: 0.09 + Math.random() * 0.04,
+        });
+      }
     }
 
     // Brick break: coloured shards fly out and fall
@@ -294,8 +304,11 @@
       } else if (type === 'ghost') {
         fx.ghost = true;
       } else if (type === 'bigball') {
-        fx.bigball = BIG_BALL_FRAMES;
+        fx.bigball = BIG_BALL_FRAMES; fx.tiny = 0;
         ball.r = BIG_BALL_R;
+      } else if (type === 'tiny') {
+        fx.tiny = TINY_BALL_FRAMES; fx.bigball = 0;
+        ball.r = TINY_BALL_R;
       }
       spawnBounce(paddle.x + PADDLE_W / 2, paddle.y, PU_HUE[type]);
     }
@@ -304,8 +317,12 @@
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         if (p.type === 'ring') {
-          p.r    += 2;
+          p.r    += p.rspd ?? 2;
           p.alpha -= 0.07;
+        } else if (p.type === 'spark') {
+          p.x  += p.vx; p.y  += p.vy;
+          p.vx *= 0.82; p.vy *= 0.82;
+          p.alpha -= p.decay;
         } else {
           p.x   += p.vx;
           p.y   += p.vy;
@@ -327,6 +344,13 @@
           ctx.lineWidth   = 2;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (p.type === 'spark') {
+          ctx.strokeStyle = `hsl(${p.hue}, 100%, 75%)`;
+          ctx.lineWidth   = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x - p.vx * 3, p.y - p.vy * 3);
           ctx.stroke();
         } else {
           ctx.translate(p.x, p.y);
@@ -381,21 +405,22 @@
       ball.x += ball.vx;
       ball.y += ball.vy;
 
-      // Wall bounces (hitting a wall ends ghost mode)
+      // Wall bounces (only top wall ends ghost mode)
       if (ball.x - ball.r < 0) {
         ball.x = ball.r; ball.vx = Math.abs(ball.vx);
-        nudgeSpeed(SPD_BOOST); fx.ghost = false;
+        nudgeSpeed(SPD_BOOST);
         spawnBounce(ball.x, ball.y, 220);
       }
       if (ball.x + ball.r > W) {
         ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx);
-        nudgeSpeed(SPD_BOOST); fx.ghost = false;
+        nudgeSpeed(SPD_BOOST);
         spawnBounce(ball.x, ball.y, 220);
       }
       if (ball.y - ball.r < 0) {
         ball.y = ball.r; ball.vy = Math.abs(ball.vy);
         nudgeSpeed(SPD_BOOST); fx.ghost = false;
         spawnBounce(ball.x, ball.y, 220);
+        shakeFrames = 4; shakeAmt = 3;
       }
 
       // Ball fell off bottom – lose life
@@ -403,7 +428,8 @@
         lives--;
         updateHUD();
         fallingPowerups = [];
-        fx = { sticky: false, ghost: false, bigball: 0 };
+        fx = { sticky: false, ghost: false, bigball: 0, tiny: 0 };
+        shakeFrames = 0;
         if (lives <= 0) {
           state = 'dead';
           showMsg('GAME OVER — press LAUNCH to restart');
@@ -458,6 +484,7 @@
             alive--;
             spawnBreak(b);
             spawnPowerup(b);
+            shakeFrames = 5; shakeAmt = 2 + b.maxHp;
             score += 10 * b.maxHp * level;
             updateHUD();
           }
@@ -491,11 +518,12 @@
         if (pu.y > H) fallingPowerups.splice(i, 1);
       }
 
-      // Bigball timer
-      if (fx.bigball > 0) {
-        fx.bigball--;
-        if (fx.bigball === 0) ball.r = BALL_R;
-      }
+      // Size-effect timers
+      if (fx.bigball > 0) { fx.bigball--; if (fx.bigball === 0) ball.r = BALL_R; }
+      if (fx.tiny   > 0) { fx.tiny--;   if (fx.tiny   === 0) ball.r = BALL_R; }
+
+      // Shake decay
+      if (shakeFrames > 0) shakeFrames--;
 
       updateParticles();
     }
@@ -503,6 +531,13 @@
     // ── Draw ───────────────────────────────────────────────────────
     function draw() {
       ctx.clearRect(0, 0, W, H);
+      ctx.save();
+      if (shakeFrames > 0) {
+        ctx.translate(
+          (Math.random() - 0.5) * shakeAmt,
+          (Math.random() - 0.5) * shakeAmt
+        );
+      }
 
       // Bricks
       for (const b of bricks) {
@@ -584,8 +619,14 @@
       // Ball (tinted by active effect)
       ctx.save();
       if (fx.ghost) ctx.globalAlpha = 0.45;
-      const ballInner = fx.ghost ? '#aaffff' : fx.bigball > 0 ? '#ff88ff' : '#ffffff';
-      const ballOuter = fx.ghost ? '#44bbcc' : fx.bigball > 0 ? '#cc44cc' : '#88aaff';
+      const ballInner = fx.ghost   ? '#aaffff'
+                      : fx.bigball > 0 ? '#ff88ff'
+                      : fx.tiny   > 0 ? '#ffcc88'
+                      : '#ffffff';
+      const ballOuter = fx.ghost   ? '#44bbcc'
+                      : fx.bigball > 0 ? '#cc44cc'
+                      : fx.tiny   > 0 ? '#cc4400'
+                      : '#88aaff';
       const bg = ctx.createRadialGradient(
         ball.x - 2, ball.y - 2, 1,
         ball.x,     ball.y,     ball.r
@@ -596,7 +637,9 @@
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
+      ctx.restore();   // ball save/restore
+
+      ctx.restore();   // shake save/restore
     }
 
     function loop() {
