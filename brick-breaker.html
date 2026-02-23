@@ -67,6 +67,30 @@
       letter-spacing: 1px;
       text-align: center;
     }
+
+    #mobileControls {
+      display: flex;
+      gap: 24px;
+      margin-top: 14px;
+    }
+
+    #mobileControls button {
+      background: #1e2870;
+      color: #a0b0ff;
+      border: 2px solid #3040a0;
+      border-radius: 10px;
+      font-size: 1.6rem;
+      padding: 14px 32px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      transition: background 0.1s;
+    }
+
+    #mobileControls button:active {
+      background: #3858cc;
+    }
   </style>
 </head>
 <body>
@@ -80,8 +104,13 @@
 
   <canvas id="canvas" width="480" height="560"></canvas>
 
-  <div id="message">Tap or press SPACE to start</div>
-  <div id="controls">Mouse / touch to move &nbsp;|&nbsp; Tap / SPACE to launch</div>
+  <div id="message">Tap or press SPACE to launch</div>
+  <div id="controls">Mouse / drag / buttons to move &nbsp;|&nbsp; Tap / SPACE to launch</div>
+
+  <div id="mobileControls">
+    <button id="btnLeft">&#9664;</button>
+    <button id="btnRight">&#9654;</button>
+  </div>
 
   <script>
     const canvas  = document.getElementById('canvas');
@@ -446,9 +475,11 @@
 
     // ── Input ──────────────────────────────────────────────────────
     function handleAction() {
-      if (state === 'idle' || state === 'dead') {
+      if (state === 'playing' && !ball.launched) {
+        launchBall();
+        clearMsg();
+      } else if (state === 'idle' || state === 'dead') {
         startGame();
-      } else if (state === 'playing' && !ball.launched) {
         launchBall();
         clearMsg();
       }
@@ -490,11 +521,23 @@
       e.preventDefault();
     }, { passive: false });
 
+    // Mobile left/right buttons
+    const btnLeft  = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+
+    function holdLeft(down)  { keys['ArrowLeft']  = down; }
+    function holdRight(down) { keys['ArrowRight'] = down; }
+
+    btnLeft.addEventListener('pointerdown',  e => { e.preventDefault(); holdLeft(true);  handleAction(); });
+    btnLeft.addEventListener('pointerup',    e => { e.preventDefault(); holdLeft(false); });
+    btnLeft.addEventListener('pointerleave', e => { holdLeft(false); });
+
+    btnRight.addEventListener('pointerdown',  e => { e.preventDefault(); holdRight(true);  handleAction(); });
+    btnRight.addEventListener('pointerup',    e => { e.preventDefault(); holdRight(false); });
+    btnRight.addEventListener('pointerleave', e => { holdRight(false); });
+
     // ── Boot ───────────────────────────────────────────────────────
-    bricks    = buildBricks(1);
-    particles = [];
-    ball      = freshBall();
-    updateHUD();
+    startGame();
     loop();
   </script>
 </body>
