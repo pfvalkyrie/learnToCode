@@ -91,6 +91,20 @@
     #mobileControls button:active {
       background: #3858cc;
     }
+
+    #btnLaunch {
+      background: #2a5cd6;
+      color: #ffffff;
+      border-color: #6080ff;
+      font-size: 1rem;
+      letter-spacing: 2px;
+      padding: 14px 20px;
+      min-width: 90px;
+    }
+
+    #btnLaunch:active {
+      background: #4a7aff;
+    }
   </style>
 </head>
 <body>
@@ -109,6 +123,7 @@
 
   <div id="mobileControls">
     <button id="btnLeft">&#9664;</button>
+    <button id="btnLaunch">LAUNCH</button>
     <button id="btnRight">&#9654;</button>
   </div>
 
@@ -333,12 +348,14 @@
         updateHUD();
         if (lives <= 0) {
           state = 'dead';
-          showMsg('GAME OVER — Tap or SPACE to restart');
+          showMsg('GAME OVER — press LAUNCH to restart');
+          updateLaunchBtn();
           return;
         }
         ball   = freshBall();
         ball.x = paddle.x + PADDLE_W / 2;
-        showMsg('Tap or SPACE to launch');
+        showMsg('Press LAUNCH to continue');
+        updateLaunchBtn();
         return;
       }
 
@@ -382,7 +399,8 @@
         bricks = buildBricks(level);
         ball   = freshBall();
         ball.x = paddle.x + PADDLE_W / 2;
-        showMsg(`Level ${level} — Tap or SPACE to launch`);
+        showMsg(`Level ${level} — press LAUNCH`);
+        updateLaunchBtn();
       }
 
       updateParticles();
@@ -473,6 +491,13 @@
     function showMsg(msg) { document.getElementById('message').textContent = msg; }
     function clearMsg()   { document.getElementById('message').textContent = ''; }
 
+    function updateLaunchBtn() {
+      const btn = document.getElementById('btnLaunch');
+      if (state === 'dead')    { btn.textContent = 'RESTART'; return; }
+      if (!ball || !ball.launched) { btn.textContent = 'LAUNCH';  return; }
+      btn.textContent = '·····';
+    }
+
     // ── Input ──────────────────────────────────────────────────────
     function handleAction() {
       if (state === 'playing' && !ball.launched) {
@@ -483,6 +508,7 @@
         launchBall();
         clearMsg();
       }
+      updateLaunchBtn();
     }
 
     // Keyboard
@@ -536,8 +562,12 @@
     btnRight.addEventListener('pointerup',    e => { e.preventDefault(); holdRight(false); });
     btnRight.addEventListener('pointerleave', e => { holdRight(false); });
 
+    const btnLaunch = document.getElementById('btnLaunch');
+    btnLaunch.addEventListener('pointerdown', e => { e.preventDefault(); handleAction(); });
+
     // ── Boot ───────────────────────────────────────────────────────
     startGame();
+    updateLaunchBtn();
     loop();
   </script>
 </body>
