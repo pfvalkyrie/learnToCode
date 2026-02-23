@@ -116,7 +116,7 @@
     <div><span>LIVES </span><b id="livesDisplay">3</b></div>
   </div>
 
-  <canvas id="canvas" width="480" height="560"></canvas>
+  <canvas id="canvas" width="480" height="700"></canvas>
 
   <div id="message">Tap or press SPACE to launch</div>
   <div id="controls">Mouse / drag / buttons to move &nbsp;|&nbsp; Tap / SPACE to launch</div>
@@ -144,13 +144,18 @@
     const BIG_BALL_FRAMES = 180;   // 3 s at 60 fps
     const TINY_BALL_FRAMES = 600;  // 10 s at 60 fps
     const BASE_SPD        = 6;
-    const SPD_MAX         = 15;
-    const SPD_BOOST       = 1.06;
+    const SPD_MAX         = 11;
+    const SPD_BOOST       = 1.02;
+    const WIDE_FRAMES     = 600;   // 10 s
+    const NARROW_FRAMES   = 480;   // 8 s
 
     // ── Power-up config ────────────────────────────────────────────
-    const PU_TYPES  = ['sticky', 'ghost', 'bigball', 'tiny'];
-    const PU_HUE    = { sticky: 48, ghost: 185, bigball: 285, tiny: 22 };
-    const PU_LABEL  = { sticky: 'S', ghost: 'G', bigball: 'B', tiny: 'T' };
+    // Types: positive=green/blue, negative=red, rare=cyan
+    const PU_TYPES   = ['sticky', 'ghost', 'bigball', 'tiny', 'wide', 'narrow', 'force'];
+    const PU_HUE     = { sticky: 48, ghost: 185, bigball: 285, tiny: 22, wide: 120, narrow: 0, force: 190 };
+    const PU_LABEL   = { sticky: 'S', ghost: 'G', bigball: 'B', tiny: 'T', wide: 'W', narrow: 'N', force: 'F' };
+    // Weights: force is rare (~10 % of drops), narrow matches others (player can dodge)
+    const PU_WEIGHTS = [3, 3, 3, 3, 3, 3, 2];   // total = 20
     const PU_W = 18, PU_H = 22, PU_SPD = 1.6;
     const PU_DROP_CHANCE = 0.3;
 
@@ -174,12 +179,12 @@
     let score     = 0;
     let lives     = 3;
     let level     = 1;
-    let paddle    = { x: W / 2 - PADDLE_W / 2, y: PADDLE_Y };
+    let paddle    = { x: W / 2 - PADDLE_W / 2, y: PADDLE_Y, w: PADDLE_W };
     let keys      = {};
     let pointerX  = null;   // mouse or touch X in canvas logical coords
     let ball, bricks, particles;
     let fallingPowerups = [];
-    let fx = { sticky: false, ghost: false, bigball: 0, tiny: 0 };
+    let fx = { sticky: false, ghost: false, bigball: 0, tiny: 0, wide: 0, narrow: 0, force: false };
     let shakeFrames = 0, shakeAmt = 0;
 
     // ── Ball / brick helpers ───────────────────────────────────────
@@ -209,13 +214,14 @@
     function startGame() {
       score = 0; lives = 3; level = 1;
       paddle.x      = W / 2 - PADDLE_W / 2;
+      paddle.w      = PADDLE_W;
       bricks        = buildBricks(1);
       particles     = [];
       fallingPowerups = [];
-      fx            = { sticky: false, ghost: false, bigball: 0, tiny: 0 };
+      fx            = { sticky: false, ghost: false, bigball: 0, tiny: 0, wide: 0, narrow: 0, force: false };
       shakeFrames   = 0;
       ball          = freshBall();
-      ball.x        = paddle.x + PADDLE_W / 2;
+      ball.x        = paddle.x + paddle.w / 2;
       state         = 'playing';
       updateHUD();
       showMsg('Tap or press SPACE to launch');
@@ -290,9 +296,13 @@
 
     function spawnPowerup(brick) {
       if (Math.random() > PU_DROP_CHANCE) return;
-      const type = PU_TYPES[Math.floor(Math.random() * PU_TYPES.length)];
+      // Weighted random pick
+      const total = PU_WEIGHTS.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      let idx = 0;
+      for (; idx < PU_WEIGHTS.length - 1; idx++) { r -= PU_WEIGHTS[idx]; if (r <= 0) break; }
       fallingPowerups.push({
-        type,
+        type: PU_TYPES[idx],
         x: brick.x + brick.w / 2 - PU_W / 2,
         y: brick.y + brick.h / 2,
       });
@@ -309,8 +319,16 @@
       } else if (type === 'tiny') {
         fx.tiny = TINY_BALL_FRAMES; fx.bigball = 0;
         ball.r = TINY_BALL_R;
+      } else if (type === 'wide') {
+        fx.wide = WIDE_FRAMES; fx.narrow = 0;
+        paddle.w = Math.round(PADDLE_W * 1.6);
+      } else if (type === 'narrow') {
+        fx.narrow = NARROW_FRAMES; fx.wide = 0;
+        paddle.w = Math.round(PADDLE_W * 0.55);
+      } else if (type === 'force') {
+        fx.force = true;
       }
-      spawnBounce(paddle.x + PADDLE_W / 2, paddle.y, PU_HUE[type]);
+      spawnBounce(paddle.x + paddle.w / 2, paddle.y, PU_HUE[type]);
     }
 
     function updateParticles() {
@@ -390,126 +408,131 @@
       if (state !== 'playing') return;
 
       // Move paddle
-      if (pointerX !== null) paddle.x = pointerX - PADDLE_W / 2;
+      if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
       if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
       if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
-      paddle.x = Math.max(0, Math.min(W - PADDLE_W, paddle.x));
+      paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
 
-      // Keep ball glued to paddle until launched
       if (!ball.launched) {
-        ball.x = paddle.x + PADDLE_W / 2;
-        updateParticles();
-        return;
-      }
+        // Glue ball to paddle centre
+        ball.x = paddle.x + paddle.w / 2;
+      } else {
+        ball.x += ball.vx;
+        ball.y += ball.vy;
 
-      ball.x += ball.vx;
-      ball.y += ball.vy;
-
-      // Wall bounces (only top wall ends ghost mode)
-      if (ball.x - ball.r < 0) {
-        ball.x = ball.r; ball.vx = Math.abs(ball.vx);
-        nudgeSpeed(SPD_BOOST);
-        spawnBounce(ball.x, ball.y, 220);
-      }
-      if (ball.x + ball.r > W) {
-        ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx);
-        nudgeSpeed(SPD_BOOST);
-        spawnBounce(ball.x, ball.y, 220);
-      }
-      if (ball.y - ball.r < 0) {
-        ball.y = ball.r; ball.vy = Math.abs(ball.vy);
-        nudgeSpeed(SPD_BOOST); fx.ghost = false;
-        spawnBounce(ball.x, ball.y, 220);
-        shakeFrames = 4; shakeAmt = 3;
-      }
-
-      // Ball fell off bottom – lose life
-      if (ball.y - ball.r > H) {
-        lives--;
-        updateHUD();
-        fallingPowerups = [];
-        fx = { sticky: false, ghost: false, bigball: 0, tiny: 0 };
-        shakeFrames = 0;
-        if (lives <= 0) {
-          state = 'dead';
-          showMsg('GAME OVER — press LAUNCH to restart');
-          updateLaunchBtn();
-          return;
+        // Wall bounces (only top wall ends ghost mode)
+        if (ball.x - ball.r < 0) {
+          ball.x = ball.r; ball.vx = Math.abs(ball.vx);
+          nudgeSpeed(SPD_BOOST);
+          spawnBounce(ball.x, ball.y, 220);
         }
-        ball   = freshBall();
-        ball.x = paddle.x + PADDLE_W / 2;
-        showMsg('Press LAUNCH to continue');
-        updateLaunchBtn();
-        return;
-      }
-
-      // Paddle collision
-      if (
-        ball.vy > 0 &&
-        circleRect(ball.x, ball.y, ball.r, paddle.x, paddle.y, PADDLE_W, PADDLE_H)
-      ) {
-        if (fx.sticky) {
-          // Catch and hold the ball
-          ball.vx = 0; ball.vy = 0;
-          ball.launched = false;
-          ball.y = paddle.y - ball.r;
-          spawnBounce(ball.x, ball.y, PU_HUE.sticky);
-          showMsg('STICKY — press LAUNCH to release');
-          updateLaunchBtn();
-        } else {
-          const hit     = (ball.x - paddle.x) / PADDLE_W;    // 0 → 1
-          const angle   = -Math.PI / 2 + (hit - 0.5) * Math.PI * 0.7;
-          const baseSpd = BASE_SPD + (level - 1) * 0.5;
-          ball.vx = Math.cos(angle) * baseSpd;
-          ball.vy = Math.sin(angle) * baseSpd;
-          ball.y  = paddle.y - ball.r;
-          spawnBounce(ball.x, ball.y, 200);
+        if (ball.x + ball.r > W) {
+          ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx);
+          nudgeSpeed(SPD_BOOST);
+          spawnBounce(ball.x, ball.y, 220);
         }
-      }
+        if (ball.y - ball.r < 0) {
+          ball.y = ball.r; ball.vy = Math.abs(ball.vy);
+          nudgeSpeed(SPD_BOOST); fx.ghost = false;
+          spawnBounce(ball.x, ball.y, 220);
+          shakeFrames = 4; shakeAmt = 3;
+        }
 
-      // Brick collisions
-      let alive = 0;
-      for (const b of bricks) {
-        if (!b.alive) continue;
-        alive++;
-        if (circleRect(ball.x, ball.y, ball.r, b.x, b.y, b.w, b.h)) {
-          if (!fx.ghost) {
+        // Ball fell off bottom
+        if (ball.y - ball.r > H) {
+          if (fx.force) {
+            // Force-field saves it — one-time bounce
+            ball.y = H - ball.r;
+            ball.vy = -Math.abs(ball.vy);
+            fx.force = false;
+            spawnBounce(ball.x, H - ball.r, PU_HUE.force);
+            shakeFrames = 6; shakeAmt = 4;
+          } else {
+            lives--;
+            updateHUD();
+            fallingPowerups = [];
+            fx = { sticky: false, ghost: false, bigball: 0, tiny: 0, wide: 0, narrow: 0, force: false };
+            paddle.w = PADDLE_W;
+            shakeFrames = 0;
+            if (lives <= 0) {
+              state = 'dead';
+              showMsg('GAME OVER — press LAUNCH to restart');
+              updateLaunchBtn();
+              return;
+            }
+            ball   = freshBall();
+            ball.x = paddle.x + paddle.w / 2;
+            showMsg('Press LAUNCH to continue');
+            updateLaunchBtn();
+            return;
+          }
+        }
+
+        // Paddle collision
+        if (
+          ball.vy > 0 &&
+          circleRect(ball.x, ball.y, ball.r, paddle.x, paddle.y, paddle.w, PADDLE_H)
+        ) {
+          if (fx.sticky) {
+            ball.vx = 0; ball.vy = 0;
+            ball.launched = false;
+            ball.y = paddle.y - ball.r;
+            spawnBounce(ball.x, ball.y, PU_HUE.sticky);
+            showMsg('STICKY — press LAUNCH to release');
+            updateLaunchBtn();
+          } else {
+            const hit     = (ball.x - paddle.x) / paddle.w;
+            const angle   = -Math.PI / 2 + (hit - 0.5) * Math.PI * 0.7;
+            const baseSpd = BASE_SPD + (level - 1) * 0.5;
+            ball.vx = Math.cos(angle) * baseSpd;
+            ball.vy = Math.sin(angle) * baseSpd;
+            ball.y  = paddle.y - ball.r;
+            spawnBounce(ball.x, ball.y, 200);
+          }
+        }
+
+        // Brick collisions — ghost passes through without damaging
+        let alive = 0;
+        for (const b of bricks) {
+          if (!b.alive) continue;
+          alive++;
+          if (!fx.ghost && circleRect(ball.x, ball.y, ball.r, b.x, b.y, b.w, b.h)) {
             resolveRect(b.x, b.y, b.w, b.h, ball);
             nudgeSpeed(SPD_BOOST);
-          }
-          spawnBounce(ball.x, ball.y, getBrickHue(b.maxHp));
-          b.hp--;
-          if (b.hp <= 0) {
-            b.alive = false;
-            alive--;
-            spawnBreak(b);
-            spawnPowerup(b);
-            shakeFrames = 5; shakeAmt = 2 + b.maxHp;
-            score += 10 * b.maxHp * level;
-            updateHUD();
+            spawnBounce(ball.x, ball.y, getBrickHue(b.maxHp));
+            b.hp--;
+            if (b.hp <= 0) {
+              b.alive = false;
+              alive--;
+              spawnBreak(b);
+              spawnPowerup(b);
+              shakeFrames = 5; shakeAmt = 2 + b.maxHp;
+              score += 10 * b.maxHp * level;
+              updateHUD();
+            }
           }
         }
-      }
 
-      // All bricks cleared → next level
-      if (alive === 0) {
-        level++;
-        updateHUD();
-        bricks = buildBricks(level);
-        ball   = freshBall();
-        ball.x = paddle.x + PADDLE_W / 2;
-        showMsg(`Level ${level} — press LAUNCH`);
-        updateLaunchBtn();
-      }
+        // All bricks cleared → next level
+        if (alive === 0) {
+          level++;
+          updateHUD();
+          bricks = buildBricks(level);
+          ball   = freshBall();
+          ball.x = paddle.x + paddle.w / 2;
+          showMsg(`Level ${level} — press LAUNCH`);
+          updateLaunchBtn();
+        }
+      } // end ball.launched
 
-      // Falling power-ups
+      // ── Always runs (even before launch, so power-ups never freeze) ──
       for (let i = fallingPowerups.length - 1; i >= 0; i--) {
         const pu = fallingPowerups[i];
         pu.y += PU_SPD;
         if (
           pu.y + PU_H >= paddle.y &&
           pu.x + PU_W >= paddle.x &&
-          pu.x        <= paddle.x + PADDLE_W
+          pu.x        <= paddle.x + paddle.w
         ) {
           activatePowerup(pu.type);
           fallingPowerups.splice(i, 1);
@@ -518,9 +541,11 @@
         if (pu.y > H) fallingPowerups.splice(i, 1);
       }
 
-      // Size-effect timers
+      // Timers
       if (fx.bigball > 0) { fx.bigball--; if (fx.bigball === 0) ball.r = BALL_R; }
       if (fx.tiny   > 0) { fx.tiny--;   if (fx.tiny   === 0) ball.r = BALL_R; }
+      if (fx.wide   > 0) { fx.wide--;   if (fx.wide   === 0) paddle.w = PADDLE_W; }
+      if (fx.narrow > 0) { fx.narrow--; if (fx.narrow === 0) paddle.w = PADDLE_W; }
 
       // Shake decay
       if (shakeFrames > 0) shakeFrames--;
@@ -598,21 +623,43 @@
         ctx.restore();
       }
 
-      // Paddle (golden tint when sticky is active)
+      // Force-field barrier (drawn at bottom before paddle)
+      if (fx.force) {
+        const fy = H - 6;
+        const fg = ctx.createLinearGradient(0, fy, W, fy);
+        fg.addColorStop(0,   'transparent');
+        fg.addColorStop(0.15, `hsl(${PU_HUE.force}, 100%, 70%)`);
+        fg.addColorStop(0.5,  '#ffffff');
+        fg.addColorStop(0.85, `hsl(${PU_HUE.force}, 100%, 70%)`);
+        fg.addColorStop(1,   'transparent');
+        ctx.save();
+        ctx.shadowColor = `hsl(${PU_HUE.force}, 100%, 60%)`;
+        ctx.shadowBlur  = 14;
+        ctx.strokeStyle = fg;
+        ctx.lineWidth   = 3;
+        ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(W, fy); ctx.stroke();
+        ctx.restore();
+      }
+
+      // Paddle (tinted by active effect)
       const pg = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + PADDLE_H);
       if (fx.sticky) {
-        pg.addColorStop(0, '#ffe060');
-        pg.addColorStop(1, '#cc8800');
+        pg.addColorStop(0, '#ffe060'); pg.addColorStop(1, '#cc8800');
         ctx.strokeStyle = '#ffe090';
+      } else if (fx.wide > 0) {
+        pg.addColorStop(0, '#60ff90'); pg.addColorStop(1, '#00aa44');
+        ctx.strokeStyle = '#88ffaa';
+      } else if (fx.narrow > 0) {
+        pg.addColorStop(0, '#ff6060'); pg.addColorStop(1, '#cc2200');
+        ctx.strokeStyle = '#ff8888';
       } else {
-        pg.addColorStop(0, '#7090ff');
-        pg.addColorStop(1, '#3050cc');
+        pg.addColorStop(0, '#7090ff'); pg.addColorStop(1, '#3050cc');
         ctx.strokeStyle = '#aabbff';
       }
       ctx.fillStyle = pg;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(paddle.x, paddle.y, PADDLE_W, PADDLE_H, 6);
+      ctx.roundRect(paddle.x, paddle.y, paddle.w, PADDLE_H, 6);
       ctx.fill();
       ctx.stroke();
 
