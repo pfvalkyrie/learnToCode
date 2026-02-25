@@ -476,11 +476,13 @@
     function update() {
       if (state !== 'playing') return;
 
-      // Move paddle
-      if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
-      if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
-      if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
-      paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+      // Move paddle (frozen while sticky ball is held so player can aim)
+      if (!ball.stuckX) {
+        if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
+        if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
+        if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
+        paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+      }
 
       if (!ball.launched) {
         if (ball.stuckX) {
@@ -553,7 +555,7 @@
             ball.stuckX   = true;
             ball.y = paddle.y - ball.r;
             spawnBounce(ball.x, ball.y, PU_HUE.sticky);
-            showMsg('STICKY — slide paddle to aim, then LAUNCH');
+            showMsg('STICKY — paddle frozen, press LAUNCH to shoot');
             updateLaunchBtn();
           } else {
             const hit     = (ball.x - paddle.x) / paddle.w;
