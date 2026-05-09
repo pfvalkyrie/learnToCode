@@ -189,7 +189,7 @@
 
     // ── Ball / brick helpers ───────────────────────────────────────
     function freshBall() {
-      return { x: W / 2, y: PADDLE_Y - BALL_R - 1, vx: 0, vy: 0, launched: false, r: BALL_R, stuckX: false };
+      return { x: W / 2, y: PADDLE_Y - BALL_R - 1, vx: 0, vy: 0, launched: false, r: BALL_R, stuckX: false, stuckOffset: 0 };
     }
 
     function buildBricks(lvl) {
@@ -476,17 +476,16 @@
     function update() {
       if (state !== 'playing') return;
 
-      // Move paddle (frozen while sticky ball is held so player can aim)
-      if (!ball.stuckX) {
-        if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
-        if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
-        if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
-        paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
-      }
+      // Paddle always moves freely so player can aim sticky ball
+      if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
+      if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
+      if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
+      paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
 
       if (!ball.launched) {
         if (ball.stuckX) {
-          // Sticky: keep ball at caught X, clamped within paddle edges
+          // Sticky: ball rides paddle at its caught relative offset
+          ball.x = paddle.x + ball.stuckOffset;
           ball.x = Math.max(paddle.x + ball.r, Math.min(paddle.x + paddle.w - ball.r, ball.x));
         } else {
           // Fresh ball: follows paddle centre
@@ -553,9 +552,10 @@
             ball.vx = 0; ball.vy = 0;
             ball.launched = false;
             ball.stuckX   = true;
+            ball.stuckOffset = ball.x - paddle.x;
             ball.y = paddle.y - ball.r;
             spawnBounce(ball.x, ball.y, PU_HUE.sticky);
-            showMsg('STICKY — paddle frozen, press LAUNCH to shoot');
+            showMsg('STICKY — move to aim, press LAUNCH to shoot');
             updateLaunchBtn();
           } else {
             const hit     = (ball.x - paddle.x) / paddle.w;
