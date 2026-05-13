@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo 'export GITHUB_TOKEN=YOUR_TOKEN_HERE' >> ~/.bashrc)"
+    ]
+  }
+}
