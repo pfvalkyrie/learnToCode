@@ -119,7 +119,7 @@
   <canvas id="canvas" width="480" height="700"></canvas>
 
   <div id="message">Tap or press SPACE to launch</div>
-  <div id="controls">Mouse / drag / buttons to move &nbsp;|&nbsp; Tap / SPACE to launch</div>
+  <div id="controls">Drag near paddle to move &nbsp;|&nbsp; Sticky: hold to aim, tap paddle to launch</div>
 
   <div id="mobileControls">
     <button id="btnLeft">&#9664;</button>
@@ -181,7 +181,9 @@
     let level     = 1;
     let paddle    = { x: W / 2 - PADDLE_W / 2, y: PADDLE_Y, w: PADDLE_W };
     let keys      = {};
-    let pointerX  = null;   // mouse or touch X in canvas logical coords
+    let pointerX  = null;   // mouse or touch X used for paddle movement
+    let stickyAim = null;   // point used only for sticky aiming
+    let aimingSticky = false;
     let ball, bricks, particles;
     let fallingPowerups = [];
     let fx = { sticky: false, ghost: false, bigball: 0, tiny: 0, wide: 0, narrow: 0, force: false };
@@ -240,6 +242,8 @@
       ball.launched = true;
       ball.stuckX   = false;
       fx.sticky     = false;
+      stickyAim     = null;
+      aimingSticky  = false;
     }
 
     // Scale ball speed without changing direction
@@ -339,17 +343,18 @@
       particles.push({ type: 'ring', x: ox, y: oy, r: 2,  hue: 55, alpha: 1.0, rspd: 3 });
     }
 
-    // Angle for sticky aiming: points from ball toward pointer/touch position
+    // Angle for sticky aiming: points from the held ball toward the selected aim point.
     function getStickyAimAngle() {
-      if (pointerX !== null) {
-        const dx = pointerX - ball.x;
-        const raw = Math.atan2(-150, dx);
+      if (stickyAim) {
+        const dx = stickyAim.x - ball.x;
+        const dy = Math.min(stickyAim.y - ball.y, -20);
+        const raw = Math.atan2(dy, dx);
         return Math.max(-Math.PI + 0.3, Math.min(-0.3, raw));
       }
       return -Math.PI / 2; // straight up fallback
     }
 
-    // Dashed aim line while sticky ball is held on paddle
+    // Dotted aim path while sticky ball is held on paddle
     function drawAimLine() {
       if (!ball || !ball.stuckX) return;
       const r     = ball.r;
@@ -371,18 +376,30 @@
         if (side === 'y') vy = -vy;
       }
       ctx.save();
-      ctx.strokeStyle = 'rgba(255, 215, 70, 0.6)';
-      ctx.lineWidth   = 1.5;
-      ctx.setLineDash([5, 8]);
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      // Dot at end-point
-      const last = pts[pts.length - 1];
-      ctx.fillStyle = 'rgba(255, 215, 70, 0.55)';
-      ctx.beginPath(); ctx.arc(last[0], last[1], 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+      ctx.shadowColor = 'rgba(255, 255, 255, 0.35)';
+      ctx.shadowBlur = 6;
+      const spacing = 24;
+      let carry = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[i + 1];
+        const dx = x2 - x1, dy = y2 - y1;
+        const len = Math.hypot(dx, dy);
+        if (len === 0) continue;
+        const ux = dx / len, uy = dy / len;
+        for (let d = i === 0 ? 0 : spacing - carry; d <= len; d += spacing) {
+          const px = x1 + ux * d;
+          const py = y1 + uy * d;
+          const fade = Math.max(0.45, 1 - (py / H) * 0.2);
+          ctx.globalAlpha = fade;
+          ctx.beginPath();
+          ctx.arc(px, py, 5.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        carry = len % spacing;
+      }
+      ctx.globalAlpha = 1;
       ctx.restore();
     }
 
@@ -563,8 +580,9 @@
             ball.stuckX   = true;
             ball.stuckOffset = ball.x - paddle.x;
             ball.y = paddle.y - ball.r;
+            stickyAim = { x: ball.x, y: ball.y - 150 };
             spawnBounce(ball.x, ball.y, PU_HUE.sticky);
-            showMsg('STICKY — move to aim, press LAUNCH to shoot');
+            showMsg('STICKY — hold to aim, tap paddle to launch');
             updateLaunchBtn();
           } else {
             const hit     = (ball.x - paddle.x) / paddle.w;
@@ -829,6 +847,45 @@
       updateLaunchBtn();
     }
 
+    function stickyHeld() {
+      return state === 'playing' && ball && !ball.launched && ball.stuckX;
+    }
+
+    function canvasPoint(e) {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) * (W / r.width),
+        y: (e.clientY - r.top) * (H / r.height),
+      };
+    }
+
+    function setStickyAim(point) {
+      stickyAim = {
+        x: Math.max(0, Math.min(W, point.x)),
+        y: Math.max(0, Math.min(ball.y - 20, point.y)),
+      };
+    }
+
+    function pointOnPaddle(point) {
+      const pad = 34;
+      return point.x >= paddle.x - pad &&
+             point.x <= paddle.x + paddle.w + pad &&
+             point.y >= paddle.y - pad &&
+             point.y <= paddle.y + PADDLE_H + pad * 1.5;
+    }
+
+    function handleCanvasPoint(point) {
+      if (stickyHeld()) {
+        if (aimingSticky) {
+          setStickyAim(point);
+        } else if (point.y >= paddle.y - 90) {
+          pointerX = point.x;
+        }
+      } else {
+        pointerX = point.x;
+      }
+    }
+
     // Keyboard
     document.addEventListener('keydown', e => {
       keys[e.key] = true;
@@ -836,34 +893,32 @@
     });
     document.addEventListener('keyup', e => { keys[e.key] = false; });
 
-    // Mouse
-    canvas.addEventListener('mousemove', e => {
-      const r = canvas.getBoundingClientRect();
-      pointerX = (e.clientX - r.left) * (W / r.width);
+    // Pointer input covers mouse, touch, and stylus on the canvas
+    canvas.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const point = canvasPoint(e);
+      if (stickyHeld()) {
+        if (pointOnPaddle(point)) {
+          handleAction();
+          return;
+        }
+        aimingSticky = true;
+        setStickyAim(point);
+      } else {
+        pointerX = point.x;
+        handleAction();
+      }
     });
-    canvas.addEventListener('mouseleave', () => { pointerX = null; });
-    canvas.addEventListener('click', handleAction);
-
-    // Touch – convert from CSS pixels to logical canvas pixels
-    function touchX(e) {
-      const r = canvas.getBoundingClientRect();
-      return (e.touches[0].clientX - r.left) * (W / r.width);
-    }
-
-    canvas.addEventListener('touchstart', e => {
+    canvas.addEventListener('pointermove', e => {
       e.preventDefault();
-      pointerX = touchX(e);
-      handleAction();
-    }, { passive: false });
-
-    canvas.addEventListener('touchmove', e => {
+      handleCanvasPoint(canvasPoint(e));
+    });
+    canvas.addEventListener('pointerup', e => {
       e.preventDefault();
-      pointerX = touchX(e);
-    }, { passive: false });
-
-    canvas.addEventListener('touchend', e => {
-      e.preventDefault();
-    }, { passive: false });
+      aimingSticky = false;
+    });
+    canvas.addEventListener('pointercancel', () => { aimingSticky = false; });
+    canvas.addEventListener('pointerleave', () => { pointerX = null; aimingSticky = false; });
 
     // Mobile left/right buttons
     const btnLeft  = document.getElementById('btnLeft');
@@ -872,11 +927,11 @@
     function holdLeft(down)  { keys['ArrowLeft']  = down; }
     function holdRight(down) { keys['ArrowRight'] = down; }
 
-    btnLeft.addEventListener('pointerdown',  e => { e.preventDefault(); holdLeft(true);  handleAction(); });
+    btnLeft.addEventListener('pointerdown',  e => { e.preventDefault(); holdLeft(true); });
     btnLeft.addEventListener('pointerup',    e => { e.preventDefault(); holdLeft(false); });
     btnLeft.addEventListener('pointerleave', e => { holdLeft(false); });
 
-    btnRight.addEventListener('pointerdown',  e => { e.preventDefault(); holdRight(true);  handleAction(); });
+    btnRight.addEventListener('pointerdown',  e => { e.preventDefault(); holdRight(true); });
     btnRight.addEventListener('pointerup',    e => { e.preventDefault(); holdRight(false); });
     btnRight.addEventListener('pointerleave', e => { holdRight(false); });
 
