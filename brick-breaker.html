@@ -133,6 +133,7 @@
   const PADDLE_W = 86, PADDLE_H = 14, PADDLE_Y = H - 44, PADDLE_SPD = 7;
   const BALL_R = 7;
   const BASE_SPD = 5.2, SPD_MAX = 11, SPD_GAIN = 1.015;
+  const TRAIL_LEN = 7;   // how many past positions the ball trail remembers
 
   const COLS = 9, ROWS = 6;
   const BRICK_PAD = 6, BRICK_TOP = 64;
@@ -174,7 +175,7 @@
 
   // ── Factory helpers ───────────────────────────────────────────────
   function newBall(x, y, vx, vy, launched) {
-    return { x, y, vx, vy, r: BALL_R, launched: !!launched };
+    return { x, y, vx, vy, r: BALL_R, launched: !!launched, trail: [] };
   }
 
   function restingBall() {
@@ -443,8 +444,13 @@
       if (!b.launched) {
         b.x = paddle.x + paddle.w / 2;
         b.y = PADDLE_Y - b.r - 1;
+        b.trail.length = 0;
         continue;
       }
+
+      // Record position for the trail before moving
+      b.trail.push({ x: b.x, y: b.y });
+      if (b.trail.length > TRAIL_LEN) b.trail.shift();
 
       b.x += b.vx;
       b.y += b.vy;
@@ -642,11 +648,28 @@
 
     // Balls
     for (const b of balls) {
+      // Subtle faded trail — older positions are smaller and dimmer
+      const n = b.trail.length;
+      for (let t = 0; t < n; t++) {
+        const f = (t + 1) / n;                 // 0..1, newest = 1
+        ctx.save();
+        ctx.globalAlpha = f * 0.18;            // peaks at ~0.18, very faint
+        ctx.fillStyle = '#9fb6ff';
+        ctx.beginPath();
+        ctx.arc(b.trail[t].x, b.trail[t].y, b.r * (0.35 + 0.5 * f), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(140, 170, 255, 0.7)';
+      ctx.shadowBlur = 12;
       const g = ctx.createRadialGradient(b.x - 2, b.y - 2, 1, b.x, b.y, b.r);
       g.addColorStop(0, '#ffffff');
       g.addColorStop(1, '#88aaff');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
 
     ctx.restore();
