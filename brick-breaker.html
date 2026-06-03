@@ -41,6 +41,19 @@
     #hud span { color: #c084e8; }
     #hud b    { color: #ffe6f9; }
 
+    #btnSound {
+      background: #1a0d2e;
+      color: #b8ffea;
+      border: 1px solid #4a7a6a;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: clamp(0.6rem, 2vw, 0.78rem);
+      letter-spacing: 1px;
+      padding: 3px 10px;
+      cursor: pointer;
+    }
+    #btnSound.off { color: #7a5a8a; border-color: #3a2a4a; }
+
     canvas {
       display: block;
       background: #080510;
@@ -109,6 +122,7 @@
     <div><span>SCORE </span><b id="scoreEl">0</b></div>
     <div><span>LEVEL </span><b id="levelEl">1</b></div>
     <div><span>LIVES </span><b id="livesEl">3</b></div>
+    <button id="btnSound" aria-label="Toggle sound">&#9834; ON</button>
   </div>
 
   <canvas id="game" width="480" height="640"></canvas>
@@ -152,11 +166,12 @@
     slow:   { label: 'S', hue: 195, good: true  },
     life:   { label: '+', hue: 330, good: true  },
     force:  { label: 'F', hue: 240, good: true  },
+    aim:    { label: 'A', hue: 50,  good: true  },
     narrow: { label: 'N', hue: 18,  good: false },
     fast:   { label: 'X', hue: 45,  good: false },
   };
   const PU_KEYS = Object.keys(PU);
-  const PU_WEIGHTS = { multi: 4, wide: 4, slow: 3, life: 1, force: 2, narrow: 3, fast: 3 };
+  const PU_WEIGHTS = { multi: 4, wide: 4, slow: 3, life: 1, force: 2, aim: 3, narrow: 3, fast: 3 };
   const PU_W = 20, PU_H = 20, PU_FALL = 2.0, PU_DROP_CHANCE = 0.26;
   const WIDE_FRAMES = 600, NARROW_FRAMES = 480;
   const FORCE_MS_HUE = 270;
@@ -171,8 +186,37 @@
   let particles = [];
   let keys = {};
   let pointerX = null;
-  let fx = { wide: 0, narrow: 0, force: false };
+  let fx = { wide: 0, narrow: 0, force: false, sticky: false };
   let shakeFrames = 0, shakeAmt = 0;
+  let combo = 0;                 // bricks cleared since last paddle touch
+  let floaters = [];             // floating "+score" / "xCombo" text
+  let bear = { type: 'idle', life: 0 };   // reactive mascot mood
+  let aim = null;                // { b, angle } while a ball is stuck for aiming
+
+  // ── Sound (Web Audio synthesis) ───────────────────────────────────
+  let soundOn = true;
+  let audioCtx = null;
+  function playTone(freq, dur, type = 'sine', vol = 0.05) {
+    if (!soundOn) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      g.gain.setValueAtTime(vol, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start();
+      o.stop(audioCtx.currentTime + dur);
+    } catch (e) { soundOn = false; }
+  }
+
+  function bearReact(type) { bear = { type, life: 1 }; }
+
+  function addFloater(text, x, y, hue) {
+    floaters.push({ text, x, y, hue, life: 1 });
+  }
 
   // ── Factory helpers ───────────────────────────────────────────────
   function newBall(x, y, vx, vy, launched) {
@@ -223,7 +267,10 @@
     bricks = buildBricks(level);
     powerups = [];
     particles = [];
-    fx = { wide: 0, narrow: 0, force: false };
+    floaters = [];
+    fx = { wide: 0, narrow: 0, force: false, sticky: false };
+    aim = null;
+    combo = 0;
     balls = [restingBall()];
     shakeFrames = 0;
   }
@@ -232,11 +279,16 @@
     lives--;
     updateHUD();
     powerups = [];
-    fx = { wide: 0, narrow: 0, force: false };
+    fx = { wide: 0, narrow: 0, force: false, sticky: false };
+    aim = null;
+    combo = 0;
     paddle.w = PADDLE_W;
+    bearReact('sad');
+    playTone(140, 0.35, 'sawtooth', 0.06);
     if (lives <= 0) {
       state = 'dead';
       showMsg('GAME OVER — press LAUNCH to restart');
+      playTone(90, 0.5, 'sawtooth', 0.06);
     } else {
       state = 'ready';
       balls = [restingBall()];
@@ -250,6 +302,17 @@
       startGame();
       return;
     }
+    // Fire an aimed shot from a ball stuck on the paddle (Aim power-up)
+    if (aim) {
+      const b = aim.b;
+      b.vx = Math.cos(aim.angle) * aim.spd;
+      b.vy = Math.sin(aim.angle) * aim.spd;
+      b.launched = true;
+      aim = null;
+      bearReact('happy');
+      playTone(520, 0.12, 'triangle');
+      return;
+    }
     if (state === 'ready') {
       const b = balls[0];
       const spd = curSpeed();
@@ -260,6 +323,7 @@
       b.launched = true;
       state = 'playing';
       clearMsg();
+      playTone(420, 0.1, 'triangle');
       updateGoBtn();
     }
   }
@@ -284,6 +348,8 @@
 
   function applyPowerup(type) {
     spawnBurst(paddle.x + paddle.w / 2, PADDLE_Y, PU[type].hue, 14);
+    bearReact(PU[type].good ? 'happy' : 'sad');
+    playTone(PU[type].good ? 600 : 240, 0.16, 'triangle', 0.05);
     switch (type) {
       case 'multi': {
         const extra = [];
@@ -317,6 +383,9 @@
         break;
       case 'force':
         fx.force = true;
+        break;
+      case 'aim':
+        fx.sticky = true;
         break;
     }
   }
@@ -367,6 +436,8 @@
     const ox = origin.x + origin.w / 2, oy = origin.y + origin.h / 2;
     particles.push({ kind: 'ring', x: ox, y: oy, r: 6, hue: 25, alpha: 1.2, rspd: 7 });
     particles.push({ kind: 'ring', x: ox, y: oy, r: 2, hue: 50, alpha: 1.0, rspd: 3.5 });
+    bearReact('happy');
+    playTone(110, 0.28, 'sawtooth', 0.07);
   }
 
   // ── Particles ─────────────────────────────────────────────────────
@@ -432,11 +503,21 @@
   function update() {
     if (state !== 'playing' && state !== 'ready') return;
 
-    // Paddle movement
-    if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
-    if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
-    if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
-    paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+    // Paddle movement — pointer/keys aim the stuck ball instead while aiming
+    if (aim) {
+      if (pointerX !== null) {
+        const t = Math.max(0, Math.min(1, pointerX / W));        // 0..1 across canvas
+        aim.angle = -Math.PI / 2 + (t - 0.5) * 1.9;
+      }
+      if (keys['ArrowLeft'])  aim.angle -= 0.045;
+      if (keys['ArrowRight']) aim.angle += 0.045;
+      aim.angle = Math.max(-Math.PI / 2 - 1.15, Math.min(-Math.PI / 2 + 1.15, aim.angle));
+    } else {
+      if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
+      if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
+      if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
+      paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+    }
 
     // Balls
     for (let i = balls.length - 1; i >= 0; i--) {
@@ -457,9 +538,9 @@
       b.y += b.vy;
 
       // Walls
-      if (b.x - b.r < 0)  { b.x = b.r; b.vx = Math.abs(b.vx); spawnBurst(b.x, b.y, 285, 4); }
-      if (b.x + b.r > W)  { b.x = W - b.r; b.vx = -Math.abs(b.vx); spawnBurst(b.x, b.y, 285, 4); }
-      if (b.y - b.r < 0)  { b.y = b.r; b.vy = Math.abs(b.vy); spawnBurst(b.x, b.y, 285, 4); }
+      if (b.x - b.r < 0)  { b.x = b.r; b.vx = Math.abs(b.vx); spawnBurst(b.x, b.y, 285, 4); playTone(180, 0.03, 'sine', 0.03); }
+      if (b.x + b.r > W)  { b.x = W - b.r; b.vx = -Math.abs(b.vx); spawnBurst(b.x, b.y, 285, 4); playTone(180, 0.03, 'sine', 0.03); }
+      if (b.y - b.r < 0)  { b.y = b.r; b.vy = Math.abs(b.vy); spawnBurst(b.x, b.y, 285, 4); playTone(200, 0.03, 'sine', 0.03); }
 
       // Floor
       if (b.y - b.r > H) {
@@ -475,13 +556,27 @@
 
       // Paddle
       if (b.vy > 0 && circleRect(b.x, b.y, b.r, paddle.x, PADDLE_Y, paddle.w, PADDLE_H)) {
-        const hit = (b.x - paddle.x) / paddle.w;          // 0..1
-        const angle = -Math.PI / 2 + (hit - 0.5) * Math.PI * 0.7;
+        combo = 0;                                        // touching the paddle resets the chain
         const spd = Math.hypot(b.vx, b.vy) || curSpeed();
-        b.vx = Math.cos(angle) * spd;
-        b.vy = Math.sin(angle) * spd;
-        b.y = PADDLE_Y - b.r;
-        spawnBurst(b.x, b.y, 310, 4);
+        if (fx.sticky && !aim) {
+          // Catch the ball for an aimed shot (Aim power-up)
+          b.launched = false; b.vx = 0; b.vy = 0;
+          b.y = PADDLE_Y - b.r - 1;
+          aim = { b, angle: -Math.PI / 2, spd };
+          fx.sticky = false;
+          spawnBurst(b.x, b.y, 50, 10);
+          bearReact('happy');
+          playTone(360, 0.1, 'triangle');
+          showMsg('Aim with mouse / ◀ ▶, then LAUNCH');
+        } else {
+          const hit = (b.x - paddle.x) / paddle.w;        // 0..1
+          const angle = -Math.PI / 2 + (hit - 0.5) * Math.PI * 0.7;
+          b.vx = Math.cos(angle) * spd;
+          b.vy = Math.sin(angle) * spd;
+          b.y = PADDLE_Y - b.r;
+          spawnBurst(b.x, b.y, 310, 4);
+          playTone(300, 0.05, 'sine', 0.04);
+        }
       }
 
       // Bricks
@@ -492,12 +587,18 @@
           nudge(b);
           spawnBurst(b.x, b.y, HP_HUE[brick.maxHp] || 200, 4);
           brick.hp--;
+          playTone(300 + combo * 18, 0.04, 'square', 0.035);
           if (brick.hp <= 0) {
             brick.alive = false;
+            combo++;
+            const gained = 10 * brick.maxHp * level + (combo - 1) * 5;
+            score += gained;
             spawnBreak(brick);
             maybeDropPowerup(brick);
-            score += 10 * brick.maxHp * level;
+            addFloater('+' + gained, brick.x + brick.w / 2, brick.y + brick.h / 2, HP_HUE[brick.maxHp] || 270);
+            if (combo >= 3) addFloater('x' + combo, brick.x + brick.w / 2, brick.y - 6, 50);
             updateHUD();
+            if (combo >= 4) bearReact('happy');
             if (brick.bomb) detonate(brick);
             else { shakeFrames = 4; shakeAmt = 2; }
           }
@@ -516,6 +617,8 @@
     if (state === 'playing' && bricks.every(b => !b.alive)) {
       level++;
       updateHUD();
+      bearReact('happy');
+      playTone(523, 0.12, 'triangle'); playTone(784, 0.18, 'triangle');
       resetForLevel();
       state = 'ready';
       showMsg('Level ' + level + ' — press LAUNCH');
@@ -539,46 +642,116 @@
     if (fx.narrow > 0) { fx.narrow--; if (fx.narrow === 0) setPaddleWidth(PADDLE_W); }
     if (shakeFrames > 0) shakeFrames--;
 
+    // Floating text + mascot mood decay
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      f.y -= 0.6; f.life -= 0.02;
+      if (f.life <= 0) floaters.splice(i, 1);
+    }
+    if (bear.life > 0) bear.life = Math.max(0, bear.life - 0.02);
+
     updateParticles();
   }
 
-  // ── Neon bear background watermark ───────────────────────────────
+  // ── Neon bear mascot — reacts to combos, power-ups & misses ──────
   function drawBearBg() {
     const bx = W / 2, by = H * 0.48;
     const hr = 130; // head radius
+    const mood = bear.life > 0 ? bear.type : 'idle';
+    const t = bear.life;                              // reaction intensity 0..1
+    const baseAlpha = 0.07 + t * 0.07;
+    let stroke = '#ff80d4', glow = '#ff60cc';
+    if (mood === 'happy') { stroke = '#ffd486'; glow = '#ffb84d'; }
+    else if (mood === 'sad') { stroke = '#8ab6ff'; glow = '#5f8cff'; }
+
     ctx.save();
-    ctx.globalAlpha = 0.07;
-    ctx.strokeStyle = '#ff80d4';
-    ctx.shadowColor  = '#ff60cc';
-    ctx.shadowBlur   = 18;
-    ctx.lineWidth    = 3;
+    ctx.globalAlpha = baseAlpha;
+    ctx.strokeStyle = stroke;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 18 + t * 24;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+
     // head
     ctx.beginPath(); ctx.arc(bx, by, hr, 0, Math.PI * 2); ctx.stroke();
     // ears (rounded bumps)
     for (const [ex, ey] of [[bx - 98, by - 108], [bx + 98, by - 108]]) {
       ctx.beginPath(); ctx.arc(ex, ey, 38, 0, Math.PI * 2); ctx.stroke();
-      // inner ear
-      ctx.globalAlpha = 0.04;
+      ctx.globalAlpha = baseAlpha * 0.6;
       ctx.beginPath(); ctx.arc(ex, ey, 20, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 0.07;
+      ctx.globalAlpha = baseAlpha;
     }
-    // eyes
-    for (const ex of [bx - 44, bx + 44]) {
-      ctx.beginPath(); ctx.arc(ex, by - 26, 13, 0, Math.PI * 2); ctx.stroke();
-      // pupil dot
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = '#ff80d4';
-      ctx.beginPath(); ctx.arc(ex, by - 26, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 0.07;
+    // eyes — expression by mood
+    if (mood === 'happy') {
+      for (const ex of [bx - 44, bx + 44]) {                       // ^ ^ happy arcs
+        ctx.beginPath(); ctx.arc(ex, by - 18, 14, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+      }
+    } else if (mood === 'sad') {
+      for (const [ex, dir] of [[bx - 44, 1], [bx + 44, -1]]) {      // sad downward brows
+        ctx.beginPath();
+        ctx.moveTo(ex - 11 * dir, by - 34);
+        ctx.lineTo(ex + 11 * dir, by - 22);
+        ctx.stroke();
+      }
+    } else {
+      for (const ex of [bx - 44, bx + 44]) {
+        ctx.beginPath(); ctx.arc(ex, by - 26, 13, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = baseAlpha + 0.05;
+        ctx.fillStyle = stroke;
+        ctx.beginPath(); ctx.arc(ex, by - 26, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = baseAlpha;
+      }
     }
-    // snout (ellipse)
-    ctx.beginPath();
-    ctx.ellipse(bx, by + 48, 44, 32, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    // snout
+    ctx.beginPath(); ctx.ellipse(bx, by + 48, 44, 32, 0, 0, Math.PI * 2); ctx.stroke();
     // nose
-    ctx.globalAlpha = 0.10;
-    ctx.fillStyle = '#ff80d4';
+    ctx.globalAlpha = baseAlpha + 0.04;
+    ctx.fillStyle = stroke;
     ctx.beginPath(); ctx.arc(bx, by + 26, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = baseAlpha;
+    // mouth — frown when sad, smile otherwise
+    ctx.beginPath();
+    if (mood === 'sad') ctx.arc(bx, by + 78, 16, Math.PI * 1.15, Math.PI * 1.85);
+    else                ctx.arc(bx, by + 50, 18, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+    // reaction halo
+    if (t > 0) {
+      ctx.globalAlpha = t * 0.12;
+      ctx.beginPath(); ctx.arc(bx, by, hr + 16 + t * 20, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── Aim preview (ricochet trajectory for the Aim power-up) ───────
+  function drawAim() {
+    if (!aim) return;
+    const b = aim.b;
+    let x = b.x, y = b.y;
+    let vx = Math.cos(aim.angle), vy = Math.sin(aim.angle);
+    const step = 7;
+    const dots = [];
+    let bounces = 0;
+    for (let i = 0; i < 240 && bounces < 4; i++) {
+      x += vx * step; y += vy * step;
+      if (x < b.r)       { x = b.r;     vx = Math.abs(vx);  bounces++; }
+      else if (x > W - b.r) { x = W - b.r; vx = -Math.abs(vx); bounces++; }
+      if (y < b.r)       { y = b.r;     vy = Math.abs(vy);  bounces++; }
+      let hitBrick = false;
+      for (const br of bricks) {
+        if (br.alive && x > br.x && x < br.x + br.w && y > br.y && y < br.y + br.h) { hitBrick = true; break; }
+      }
+      if (hitBrick) { dots.push({ x, y, hit: true }); break; }
+      if (y > PADDLE_Y) break;
+      if (i % 2 === 0) dots.push({ x, y, hit: false });
+    }
+    ctx.save();
+    for (const d of dots) {
+      ctx.globalAlpha = d.hit ? 0.95 : 0.5;
+      ctx.fillStyle = d.hit ? '#ffe7a8' : '#ffd486';
+      ctx.shadowColor = '#ffb84d';
+      ctx.shadowBlur = d.hit ? 12 : 6;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.hit ? 4.5 : 2.2, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -732,6 +905,34 @@
       ctx.restore();
     }
 
+    // Aim trajectory preview
+    drawAim();
+
+    // Floating score / combo text
+    for (const f of floaters) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.3));
+      ctx.fillStyle = `hsl(${f.hue}, 100%, 80%)`;
+      ctx.shadowColor = `hsl(${f.hue}, 100%, 70%)`;
+      ctx.shadowBlur = 8;
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.restore();
+    }
+
+    // Combo meter
+    if (combo >= 2 && state === 'playing') {
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = '#ffe7a8';
+      ctx.shadowColor = '#ffb84d'; ctx.shadowBlur = 10;
+      ctx.font = 'bold 17px Courier New';
+      ctx.textAlign = 'right';
+      ctx.fillText('COMBO x' + combo, W - 10, 26);
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 
@@ -784,6 +985,22 @@
   btnRight.addEventListener('pointerup',    e => { e.preventDefault(); hold('ArrowRight', false); });
   btnRight.addEventListener('pointerleave', () => hold('ArrowRight', false));
   btnGo.addEventListener('pointerdown', e => { e.preventDefault(); launch(); });
+
+  // Sound toggle
+  const btnSound = document.getElementById('btnSound');
+  btnSound.addEventListener('click', () => {
+    soundOn = !soundOn;
+    btnSound.innerHTML = soundOn ? '&#9834; ON' : '&#9834; OFF';
+    btnSound.classList.toggle('off', !soundOn);
+    if (soundOn) playTone(660, 0.08, 'triangle');
+  });
+
+  // Resume audio on first gesture (browser autoplay policy)
+  function resumeAudio() {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }
+  document.addEventListener('pointerdown', resumeAudio);
+  document.addEventListener('keydown', resumeAudio);
 
   // ── Boot ──────────────────────────────────────────────────────────
   startGame();
