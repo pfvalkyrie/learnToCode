@@ -162,6 +162,7 @@
 
   // ── Tunables ──────────────────────────────────────────────────────
   const PADDLE_W = 86, PADDLE_H = 14, PADDLE_Y = H - 44, PADDLE_SPD = 7;
+  const PADDLE_FOLLOW = 18;   // max px/frame the paddle glides toward a far touch (no teleport)
   const BALL_R = 7;
   const BASE_SPD = 5.2, SPD_MAX = 11, SPD_GAIN = 1.015;
   const TRAIL_LEN = 7;   // how many past positions the ball trail remembers
@@ -209,6 +210,9 @@
   let particles = [];
   let keys = {};
   let pointerX = null;
+  let pointerKind = 'mouse';     // 'mouse' | 'touch' | 'pen'
+  let dragging = false;          // true while a finger directly carries the paddle
+  let grabOffset = 0;            // finger-to-paddle.x offset held during a direct drag
   let fx = { wide: 0, narrow: 0, force: false, sticky: false, shield: false, phase: 0, tiny: 0 };
   let shakeFrames = 0, shakeAmt = 0;
   let paddleHit = 0;             // squash/flash intensity on ball impact (decays)
@@ -550,9 +554,28 @@
       if (keys['ArrowRight']) aim.angle += 0.045;
       aim.angle = Math.max(-Math.PI / 2 - 1.15, Math.min(-Math.PI / 2 + 1.15, aim.angle));
     } else {
-      if (pointerX !== null) paddle.x = pointerX - paddle.w / 2;
-      if (keys['ArrowLeft'])  paddle.x -= PADDLE_SPD;
-      if (keys['ArrowRight']) paddle.x += PADDLE_SPD;
+      if (pointerX !== null) {
+        if (pointerKind === 'touch') {
+          if (dragging) {
+            // Finger is directly carrying the paddle: 1:1, finger speed, no teleport
+            paddle.x = pointerX - grabOffset;
+          } else {
+            // Finger is elsewhere: glide toward it, capped so it never teleports
+            const dx = (pointerX - paddle.w / 2) - paddle.x;
+            paddle.x += Math.max(-PADDLE_FOLLOW, Math.min(PADDLE_FOLLOW, dx));
+            // Once the paddle reaches the finger, grab it and track 1:1 from here
+            if (pointerX >= paddle.x && pointerX <= paddle.x + paddle.w) {
+              dragging = true;
+              grabOffset = pointerX - paddle.x;
+            }
+          }
+        } else {
+          // Mouse / pen: follow the cursor directly
+          paddle.x = pointerX - paddle.w / 2;
+        }
+      }
+      if (keys['ArrowLeft'])  { paddle.x -= PADDLE_SPD; dragging = false; }
+      if (keys['ArrowRight']) { paddle.x += PADDLE_SPD; dragging = false; }
       paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
     }
 
@@ -1190,9 +1213,30 @@
     return (e.clientX - r.left) * (W / r.width);
   }
 
-  canvas.addEventListener('pointerdown', e => { e.preventDefault(); pointerX = canvasX(e); launch(); });
-  canvas.addEventListener('pointermove', e => { e.preventDefault(); pointerX = canvasX(e); });
-  canvas.addEventListener('pointerleave', () => { pointerX = null; });
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    pointerKind = e.pointerType || 'mouse';
+    pointerX = canvasX(e);
+    if (pointerKind === 'touch') {
+      // Grab the paddle directly only if the finger landed on it
+      if (pointerX >= paddle.x && pointerX <= paddle.x + paddle.w) {
+        dragging = true; grabOffset = pointerX - paddle.x;
+      } else {
+        dragging = false;
+      }
+    }
+    launch();
+  });
+  canvas.addEventListener('pointermove', e => {
+    e.preventDefault();
+    pointerKind = e.pointerType || pointerKind;
+    pointerX = canvasX(e);
+  });
+  canvas.addEventListener('pointerup', e => {
+    dragging = false;
+    if ((e.pointerType || 'mouse') === 'touch') pointerX = null;  // stop gliding on lift
+  });
+  canvas.addEventListener('pointerleave', () => { pointerX = null; dragging = false; });
 
   const btnLeft = document.getElementById('btnLeft');
   const btnRight = document.getElementById('btnRight');
