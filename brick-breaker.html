@@ -668,73 +668,62 @@
     updateParticles();
   }
 
-  // ── Neon bear mascot — reacts to combos, power-ups & misses ──────
-  function drawBearBg() {
-    const bx = W / 2, by = H * 0.48;
-    const hr = 130; // head radius
-    const mood = bear.life > 0 ? bear.type : 'idle';
-    const t = bear.life;                              // reaction intensity 0..1
-    const baseAlpha = 0.07 + t * 0.07;
+  // ── Neon bear mascot — each mood painted once, then blitted faintly
+  const bearSprites = new Map();
+  function getBearSprite(mood) {
+    let spr = bearSprites.get(mood);
+    if (spr) return spr;
+    spr = document.createElement('canvas');
+    spr.width = W; spr.height = H;
+    const g = spr.getContext('2d');
+    const bx = W / 2, by = H * 0.48, hr = 130;
     let stroke = '#ff80d4', glow = '#ff60cc';
     if (mood === 'happy') { stroke = '#ffd486'; glow = '#ffb84d'; }
     else if (mood === 'sad') { stroke = '#8ab6ff'; glow = '#5f8cff'; }
+    g.strokeStyle = stroke; g.shadowColor = glow; g.shadowBlur = 22;
+    g.lineWidth = 3; g.lineCap = 'round';
 
-    ctx.save();
-    ctx.globalAlpha = baseAlpha;
-    ctx.strokeStyle = stroke;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = 18 + t * 24;
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-
-    // head
-    ctx.beginPath(); ctx.arc(bx, by, hr, 0, Math.PI * 2); ctx.stroke();
-    // ears (rounded bumps)
+    g.beginPath(); g.arc(bx, by, hr, 0, Math.PI * 2); g.stroke();
     for (const [ex, ey] of [[bx - 98, by - 108], [bx + 98, by - 108]]) {
-      ctx.beginPath(); ctx.arc(ex, ey, 38, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = baseAlpha * 0.6;
-      ctx.beginPath(); ctx.arc(ex, ey, 20, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = baseAlpha;
+      g.beginPath(); g.arc(ex, ey, 38, 0, Math.PI * 2); g.stroke();
+      g.globalAlpha = 0.6; g.beginPath(); g.arc(ex, ey, 20, 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
     }
-    // eyes — expression by mood
     if (mood === 'happy') {
-      for (const ex of [bx - 44, bx + 44]) {                       // ^ ^ happy arcs
-        ctx.beginPath(); ctx.arc(ex, by - 18, 14, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
-      }
+      for (const ex of [bx - 44, bx + 44]) { g.beginPath(); g.arc(ex, by - 18, 14, Math.PI * 1.15, Math.PI * 1.85); g.stroke(); }
     } else if (mood === 'sad') {
-      for (const [ex, dir] of [[bx - 44, 1], [bx + 44, -1]]) {      // sad downward brows
-        ctx.beginPath();
-        ctx.moveTo(ex - 11 * dir, by - 34);
-        ctx.lineTo(ex + 11 * dir, by - 22);
-        ctx.stroke();
+      for (const [ex, dir] of [[bx - 44, 1], [bx + 44, -1]]) {
+        g.beginPath(); g.moveTo(ex - 11 * dir, by - 34); g.lineTo(ex + 11 * dir, by - 22); g.stroke();
       }
     } else {
       for (const ex of [bx - 44, bx + 44]) {
-        ctx.beginPath(); ctx.arc(ex, by - 26, 13, 0, Math.PI * 2); ctx.stroke();
-        ctx.globalAlpha = baseAlpha + 0.05;
-        ctx.fillStyle = stroke;
-        ctx.beginPath(); ctx.arc(ex, by - 26, 5, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = baseAlpha;
+        g.beginPath(); g.arc(ex, by - 26, 13, 0, Math.PI * 2); g.stroke();
+        g.fillStyle = stroke; g.beginPath(); g.arc(ex, by - 26, 5, 0, Math.PI * 2); g.fill();
       }
     }
-    // snout
-    ctx.beginPath(); ctx.ellipse(bx, by + 48, 44, 32, 0, 0, Math.PI * 2); ctx.stroke();
-    // nose
-    ctx.globalAlpha = baseAlpha + 0.04;
-    ctx.fillStyle = stroke;
-    ctx.beginPath(); ctx.arc(bx, by + 26, 9, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = baseAlpha;
-    // mouth — frown when sad, smile otherwise
-    ctx.beginPath();
-    if (mood === 'sad') ctx.arc(bx, by + 78, 16, Math.PI * 1.15, Math.PI * 1.85);
-    else                ctx.arc(bx, by + 50, 18, Math.PI * 0.15, Math.PI * 0.85);
-    ctx.stroke();
-    // reaction halo
-    if (t > 0) {
+    g.beginPath(); g.ellipse(bx, by + 48, 44, 32, 0, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = stroke; g.beginPath(); g.arc(bx, by + 26, 9, 0, Math.PI * 2); g.fill();
+    g.beginPath();
+    if (mood === 'sad') g.arc(bx, by + 78, 16, Math.PI * 1.15, Math.PI * 1.85);
+    else                g.arc(bx, by + 50, 18, Math.PI * 0.15, Math.PI * 0.85);
+    g.stroke();
+    bearSprites.set(mood, spr);
+    return spr;
+  }
+
+  function drawBearBg() {
+    const mood = bear.life > 0 ? bear.type : 'idle';
+    const t = bear.life;                              // reaction intensity 0..1
+    ctx.globalAlpha = 0.09 + t * 0.10;
+    ctx.drawImage(getBearSprite(mood), 0, 0);
+    ctx.globalAlpha = 1;
+    if (t > 0) {                                      // live reaction halo
+      ctx.save();
       ctx.globalAlpha = t * 0.12;
-      ctx.beginPath(); ctx.arc(bx, by, hr + 16 + t * 20, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = mood === 'sad' ? '#8ab6ff' : mood === 'happy' ? '#ffd486' : '#ff80d4';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(W / 2, H * 0.48, 130 + 16 + t * 20, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   // ── Aim preview (ricochet trajectory for the Aim power-up) ───────
@@ -770,7 +759,45 @@
     ctx.restore();
   }
 
-  // ── Animated background (washes, blooms, twinkling stars, grid) ──
+  // ── Background — static layers pre-rendered ONCE to an offscreen
+  //    canvas; only the twinkling stars are drawn live each frame. ──
+  function makeLayer(paint) {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    paint(c.getContext('2d'));
+    return c;
+  }
+
+  const bgLayer = makeLayer(g => {
+    const wash = g.createLinearGradient(0, 0, 0, H);
+    wash.addColorStop(0, '#1a0f2e');
+    wash.addColorStop(0.5, '#120a22');
+    wash.addColorStop(1, '#080510');
+    g.fillStyle = wash; g.fillRect(0, 0, W, H);
+
+    const bloom1 = g.createRadialGradient(W * 0.25, H * 0.17, 8, W * 0.25, H * 0.17, W * 0.72);
+    bloom1.addColorStop(0, 'rgba(255, 120, 200, 0.16)');
+    bloom1.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    g.fillStyle = bloom1; g.fillRect(0, 0, W, H);
+
+    const bloom2 = g.createRadialGradient(W * 0.78, H * 0.32, 8, W * 0.78, H * 0.32, W * 0.62);
+    bloom2.addColorStop(0, 'rgba(150, 90, 255, 0.14)');
+    bloom2.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    g.fillStyle = bloom2; g.fillRect(0, 0, W, H);
+
+    g.strokeStyle = 'rgba(180, 120, 220, 0.05)';
+    g.lineWidth = 1;
+    for (let x = 0; x <= W; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+    for (let y = 0; y <= H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  });
+
+  const vignetteLayer = makeLayer(g => {
+    const v = g.createRadialGradient(W / 2, H * 0.45, H * 0.2, W / 2, H * 0.5, H * 0.78);
+    v.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    v.addColorStop(1, 'rgba(5, 3, 12, 0.55)');
+    g.fillStyle = v; g.fillRect(0, 0, W, H);
+  });
+
   const stars = [];
   for (let i = 0; i < 44; i++) {
     stars.push({ x: Math.random() * W, y: Math.random() * H, r: 0.5 + Math.random() * 1.5,
@@ -778,45 +805,53 @@
   }
 
   function drawBackground() {
+    ctx.drawImage(bgLayer, 0, 0);
     const t = performance.now() / 1000;
-
-    const wash = ctx.createLinearGradient(0, 0, 0, H);
-    wash.addColorStop(0, '#1a0f2e');
-    wash.addColorStop(0.5, '#120a22');
-    wash.addColorStop(1, '#080510');
-    ctx.fillStyle = wash; ctx.fillRect(0, 0, W, H);
-
-    const b1x = W * 0.25 + Math.sin(t * 0.3) * 34;
-    const bloom1 = ctx.createRadialGradient(b1x, H * 0.17, 8, b1x, H * 0.17, W * 0.72);
-    bloom1.addColorStop(0, 'rgba(255, 120, 200, 0.16)');
-    bloom1.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = bloom1; ctx.fillRect(0, 0, W, H);
-
-    const b2x = W * 0.78 + Math.cos(t * 0.24) * 30;
-    const bloom2 = ctx.createRadialGradient(b2x, H * 0.32, 8, b2x, H * 0.32, W * 0.62);
-    bloom2.addColorStop(0, 'rgba(150, 90, 255, 0.14)');
-    bloom2.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = bloom2; ctx.fillRect(0, 0, W, H);
-
+    ctx.fillStyle = '#ffd8f4';
     for (const s of stars) {
-      const tw = 0.5 + 0.5 * Math.sin(t * s.sp + s.ph);
-      ctx.globalAlpha = 0.12 + tw * 0.4;
-      ctx.fillStyle = '#ffd8f4';
+      ctx.globalAlpha = 0.12 + (0.5 + 0.5 * Math.sin(t * s.sp + s.ph)) * 0.4;
       ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
-
-    ctx.strokeStyle = 'rgba(180, 120, 220, 0.05)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= W; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y <= H; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
   }
 
-  function drawVignette() {
-    const v = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.2, W / 2, H * 0.5, H * 0.78);
-    v.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    v.addColorStop(1, 'rgba(5, 3, 12, 0.55)');
-    ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  function drawVignette() { ctx.drawImage(vignetteLayer, 0, 0); }
+
+  // ── Brick sprites — rendered once per distinct look (hue/damage/bomb)
+  //    with the glow baked in, then blitted each frame. ──
+  const BRICK_PADPX = 10;
+  const brickSprites = new Map();
+  function getBrickSprite(hue, L, dmg, bomb) {
+    const key = hue + '|' + L + '|' + dmg + '|' + (bomb ? 1 : 0);
+    let spr = brickSprites.get(key);
+    if (spr) return spr;
+    const w = BRICK_W, h = BRICK_H, ox = BRICK_PADPX, oy = BRICK_PADPX;
+    spr = document.createElement('canvas');
+    spr.width = Math.ceil(w + BRICK_PADPX * 2);
+    spr.height = Math.ceil(h + BRICK_PADPX * 2);
+    const g = spr.getContext('2d');
+    g.shadowColor = bomb ? 'rgba(255,140,70,0.8)' : `hsla(${hue}, 100%, 75%, 0.6)`;
+    g.shadowBlur = bomb ? 12 : 8;
+    const grad = g.createLinearGradient(ox, oy, ox, oy + h);
+    grad.addColorStop(0, `hsl(${hue}, 88%, ${L + 12}%)`);
+    grad.addColorStop(0.5, `hsl(${hue}, 76%, ${L}%)`);
+    grad.addColorStop(1, `hsl(${hue}, 70%, ${L - 14}%)`);
+    g.fillStyle = grad;
+    g.beginPath(); g.roundRect(ox, oy, w, h, 5); g.fill();
+    g.shadowBlur = 0;
+    g.globalAlpha = 0.5; g.fillStyle = '#ffffff';
+    g.beginPath(); g.roundRect(ox + 3, oy + 2.5, w - 6, 3.5, 2); g.fill();
+    g.globalAlpha = 0.5; g.strokeStyle = `hsl(${hue}, 100%, 88%)`; g.lineWidth = 1;
+    g.beginPath(); g.roundRect(ox + 0.75, oy + 0.75, w - 1.5, h - 1.5, 4.5); g.stroke();
+    if (dmg > 0) {
+      g.globalAlpha = 0.7; g.strokeStyle = 'rgba(20, 8, 30, 0.8)'; g.lineWidth = 1.4;
+      g.beginPath();
+      g.moveTo(ox + w * 0.32, oy + 3); g.lineTo(ox + w * 0.5, oy + h - 3);
+      if (dmg > 1) { g.moveTo(ox + w * 0.66, oy + 2); g.lineTo(ox + w * 0.48, oy + h - 2); }
+      g.stroke();
+    }
+    brickSprites.set(key, spr);
+    return spr;
   }
 
   function drawOverlay() {
@@ -856,51 +891,17 @@
       ctx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
     }
 
-    // Bricks — pastel neon with gradient, bevel, cracks & pulsing bombs
+    // Bricks — blit a cached sprite; only the bomb marker animates live
     const bombPulse = 0.5 + 0.5 * Math.sin(performance.now() / 160);
     for (const b of bricks) {
       if (!b.alive) continue;
-      const ratio = b.hp / b.maxHp;
-      const alpha = 0.6 + 0.4 * ratio;
+      const alpha = 0.6 + 0.4 * (b.hp / b.maxHp);
       const hue = b.bomb ? 18 : (HP_HUE[b.maxHp] || 270);
       const L = b.bomb ? 56 : 72;
-      ctx.save();
+      const spr = getBrickSprite(hue, L, b.maxHp - b.hp, b.bomb);
       ctx.globalAlpha = alpha;
-      ctx.shadowColor = b.bomb ? `rgba(255,140,70,${0.6 + bombPulse * 0.3})` : `hsla(${hue}, 100%, 75%, 0.6)`;
-      ctx.shadowBlur = b.bomb ? 10 + bombPulse * 8 : 8;
-      const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-      g.addColorStop(0, `hsl(${hue}, 88%, ${L + 12}%)`);
-      g.addColorStop(0.5, `hsl(${hue}, 76%, ${L}%)`);
-      g.addColorStop(1, `hsl(${hue}, 70%, ${L - 14}%)`);
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 5); ctx.fill();
-      ctx.shadowBlur = 0;
-      // top gloss
-      ctx.globalAlpha = alpha * 0.5;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.roundRect(b.x + 3, b.y + 2.5, b.w - 6, 3.5, 2); ctx.fill();
-      // inner bevel
-      ctx.globalAlpha = alpha * 0.5;
-      ctx.strokeStyle = `hsl(${hue}, 100%, 88%)`;
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(b.x + 0.75, b.y + 0.75, b.w - 1.5, b.h - 1.5, 4.5); ctx.stroke();
-      // crack lines once damaged
-      if (b.hp < b.maxHp) {
-        ctx.globalAlpha = alpha * 0.7;
-        ctx.strokeStyle = 'rgba(20, 8, 30, 0.8)';
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(b.x + b.w * 0.32, b.y + 3);
-        ctx.lineTo(b.x + b.w * 0.5, b.y + b.h - 3);
-        if (b.hp < b.maxHp - 1) {
-          ctx.moveTo(b.x + b.w * 0.66, b.y + 2);
-          ctx.lineTo(b.x + b.w * 0.48, b.y + b.h - 2);
-        }
-        ctx.stroke();
-      }
-      // bomb marker (pulsing)
+      ctx.drawImage(spr, b.x - BRICK_PADPX, b.y - BRICK_PADPX);
       if (b.bomb) {
-        ctx.globalAlpha = alpha;
         const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
         ctx.fillStyle = bombPulse > 0.5 ? '#fff4c0' : '#ffd070';
         ctx.beginPath();
@@ -912,8 +913,8 @@
         }
         ctx.closePath(); ctx.fill();
       }
-      ctx.restore();
     }
+    ctx.globalAlpha = 1;
 
     // Particles
     for (const p of particles) {
