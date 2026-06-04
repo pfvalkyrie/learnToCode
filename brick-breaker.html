@@ -28,14 +28,27 @@
       color: #ffb3e6;
       text-transform: uppercase;
       text-shadow: 0 0 16px rgba(255, 130, 210, 0.8), 0 0 40px rgba(255, 100, 200, 0.3);
+      animation: titleGlow 3.2s ease-in-out infinite;
+    }
+    @keyframes titleGlow {
+      0%, 100% { text-shadow: 0 0 16px rgba(255, 130, 210, 0.8), 0 0 40px rgba(255, 100, 200, 0.3); }
+      50%      { text-shadow: 0 0 26px rgba(255, 160, 235, 1), 0 0 64px rgba(255, 120, 220, 0.55); }
     }
 
     #hud {
       display: flex;
-      gap: clamp(14px, 5vw, 48px);
+      align-items: center;
+      gap: clamp(8px, 3vw, 18px);
       margin-bottom: 10px;
       font-size: clamp(0.7rem, 2.6vw, 1rem);
       letter-spacing: 2px;
+    }
+
+    #hud > div {
+      background: rgba(40, 20, 64, 0.45);
+      border: 1px solid rgba(150, 90, 200, 0.32);
+      border-radius: 10px;
+      padding: 5px 13px;
     }
 
     #hud span { color: #c084e8; }
@@ -58,8 +71,9 @@
       display: block;
       background: #080510;
       border: 2px solid #9b30c8;
-      border-radius: 6px;
-      box-shadow: 0 0 30px rgba(200, 100, 255, 0.4), 0 0 80px rgba(255, 100, 200, 0.15);
+      border-radius: 10px;
+      box-shadow: 0 0 30px rgba(200, 100, 255, 0.4), 0 0 90px rgba(255, 100, 200, 0.18),
+                  inset 0 0 40px rgba(120, 40, 160, 0.15);
       width: min(480px, 96vw);
       height: auto;
       touch-action: none;
@@ -101,6 +115,7 @@
       touch-action: none;
       transition: background 0.1s, transform 0.05s;
     }
+    #pad button:hover { border-color: #b060e0; box-shadow: 0 0 14px rgba(160, 80, 220, 0.5); }
     #pad button:active { background: #3a1060; transform: translateY(1px); }
 
     #btnGo {
@@ -755,9 +770,83 @@
     ctx.restore();
   }
 
+  // ── Animated background (washes, blooms, twinkling stars, grid) ──
+  const stars = [];
+  for (let i = 0; i < 44; i++) {
+    stars.push({ x: Math.random() * W, y: Math.random() * H, r: 0.5 + Math.random() * 1.5,
+                 ph: Math.random() * Math.PI * 2, sp: 0.4 + Math.random() * 1.6 });
+  }
+
+  function drawBackground() {
+    const t = performance.now() / 1000;
+
+    const wash = ctx.createLinearGradient(0, 0, 0, H);
+    wash.addColorStop(0, '#1a0f2e');
+    wash.addColorStop(0.5, '#120a22');
+    wash.addColorStop(1, '#080510');
+    ctx.fillStyle = wash; ctx.fillRect(0, 0, W, H);
+
+    const b1x = W * 0.25 + Math.sin(t * 0.3) * 34;
+    const bloom1 = ctx.createRadialGradient(b1x, H * 0.17, 8, b1x, H * 0.17, W * 0.72);
+    bloom1.addColorStop(0, 'rgba(255, 120, 200, 0.16)');
+    bloom1.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = bloom1; ctx.fillRect(0, 0, W, H);
+
+    const b2x = W * 0.78 + Math.cos(t * 0.24) * 30;
+    const bloom2 = ctx.createRadialGradient(b2x, H * 0.32, 8, b2x, H * 0.32, W * 0.62);
+    bloom2.addColorStop(0, 'rgba(150, 90, 255, 0.14)');
+    bloom2.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = bloom2; ctx.fillRect(0, 0, W, H);
+
+    for (const s of stars) {
+      const tw = 0.5 + 0.5 * Math.sin(t * s.sp + s.ph);
+      ctx.globalAlpha = 0.12 + tw * 0.4;
+      ctx.fillStyle = '#ffd8f4';
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = 'rgba(180, 120, 220, 0.05)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  }
+
+  function drawVignette() {
+    const v = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.2, W / 2, H * 0.5, H * 0.78);
+    v.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    v.addColorStop(1, 'rgba(5, 3, 12, 0.55)');
+    ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawOverlay() {
+    let title = '', sub = '', hue = 320;
+    if (state === 'idle')      { title = 'BRICK BREAKER'; sub = 'Press SPACE / tap LAUNCH'; hue = 320; }
+    else if (state === 'dead') { title = 'GAME OVER';     sub = 'Score ' + score + '  ·  LAUNCH to retry'; hue = 350; }
+    else return;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 4, 18, 0.62)';
+    ctx.fillRect(0, 0, W, H);
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 380);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `hsl(${hue}, 100%, 82%)`;
+    ctx.shadowColor = `hsl(${hue}, 100%, 65%)`;
+    ctx.shadowBlur = 18 + pulse * 14;
+    ctx.font = 'bold 34px "Courier New", monospace';
+    ctx.fillText(title, W / 2, H / 2 - 12);
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#b8ffea';
+    ctx.shadowColor = 'rgba(100, 255, 210, 0.6)';
+    ctx.font = '15px "Courier New", monospace';
+    ctx.globalAlpha = 0.7 + pulse * 0.3;
+    ctx.fillText(sub, W / 2, H / 2 + 24);
+    ctx.restore();
+  }
+
   // ── Draw ──────────────────────────────────────────────────────────
   function draw() {
-    ctx.clearRect(0, 0, W, H);
+    drawBackground();
 
     // Bear watermark is drawn outside the shake transform so it stays still
     drawBearBg();
@@ -767,30 +856,53 @@
       ctx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
     }
 
-    // Bricks — pastel neon with glow
+    // Bricks — pastel neon with gradient, bevel, cracks & pulsing bombs
+    const bombPulse = 0.5 + 0.5 * Math.sin(performance.now() / 160);
     for (const b of bricks) {
       if (!b.alive) continue;
       const ratio = b.hp / b.maxHp;
-      const alpha = 0.55 + 0.45 * ratio;
+      const alpha = 0.6 + 0.4 * ratio;
       const hue = b.bomb ? 18 : (HP_HUE[b.maxHp] || 270);
+      const L = b.bomb ? 56 : 72;
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.shadowColor = b.bomb ? 'rgba(255,120,60,0.9)' : `hsla(${hue}, 100%, 75%, 0.7)`;
-      ctx.shadowBlur = b.bomb ? 10 : 8;
-      ctx.fillStyle = `hsl(${hue}, 75%, ${b.bomb ? 52 : 72}%)`;
-      ctx.beginPath();
-      ctx.roundRect(b.x, b.y, b.w, b.h, 4);
-      ctx.fill();
+      ctx.shadowColor = b.bomb ? `rgba(255,140,70,${0.6 + bombPulse * 0.3})` : `hsla(${hue}, 100%, 75%, 0.6)`;
+      ctx.shadowBlur = b.bomb ? 10 + bombPulse * 8 : 8;
+      const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+      g.addColorStop(0, `hsl(${hue}, 88%, ${L + 12}%)`);
+      g.addColorStop(0.5, `hsl(${hue}, 76%, ${L}%)`);
+      g.addColorStop(1, `hsl(${hue}, 70%, ${L - 14}%)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 5); ctx.fill();
       ctx.shadowBlur = 0;
-      // shine
-      ctx.globalAlpha = alpha * 0.4;
+      // top gloss
+      ctx.globalAlpha = alpha * 0.5;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(b.x + 3, b.y + 3, b.w - 6, 3);
-      // bomb marker
+      ctx.beginPath(); ctx.roundRect(b.x + 3, b.y + 2.5, b.w - 6, 3.5, 2); ctx.fill();
+      // inner bevel
+      ctx.globalAlpha = alpha * 0.5;
+      ctx.strokeStyle = `hsl(${hue}, 100%, 88%)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(b.x + 0.75, b.y + 0.75, b.w - 1.5, b.h - 1.5, 4.5); ctx.stroke();
+      // crack lines once damaged
+      if (b.hp < b.maxHp) {
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.strokeStyle = 'rgba(20, 8, 30, 0.8)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(b.x + b.w * 0.32, b.y + 3);
+        ctx.lineTo(b.x + b.w * 0.5, b.y + b.h - 3);
+        if (b.hp < b.maxHp - 1) {
+          ctx.moveTo(b.x + b.w * 0.66, b.y + 2);
+          ctx.lineTo(b.x + b.w * 0.48, b.y + b.h - 2);
+        }
+        ctx.stroke();
+      }
+      // bomb marker (pulsing)
       if (b.bomb) {
         ctx.globalAlpha = alpha;
         const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-        ctx.fillStyle = '#fff4c0';
+        ctx.fillStyle = bombPulse > 0.5 ? '#fff4c0' : '#ffd070';
         ctx.beginPath();
         for (let s = 0; s < 16; s++) {
           const a = (s / 16) * Math.PI * 2;
@@ -879,6 +991,13 @@
     ctx.beginPath();
     ctx.roundRect(paddle.x, PADDLE_Y, paddle.w, PADDLE_H, 7);
     ctx.fill(); ctx.stroke();
+    // gloss highlight
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(paddle.x + 6, PADDLE_Y + 3, Math.max(0, paddle.w - 12), 3, 2);
+    ctx.fill();
     ctx.restore();
 
     // Balls — pastel white/pink with trail and glow
@@ -934,6 +1053,10 @@
     }
 
     ctx.restore();
+
+    // Vignette + start/game-over splash sit above everything, steady (no shake)
+    drawVignette();
+    drawOverlay();
   }
 
   function loop() {
